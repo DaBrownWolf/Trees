@@ -312,6 +312,9 @@ function main() {
 /*
 Handles the different viewing, like orthographic, perspective, top, and side
 */
+var cameraFOV = 60;
+var cameraPos = new Float32Array([0, 0, 400]);
+var cameraLookAt = new Float32Array([0, 0, 0]);
 function setViewMatrix(gl, u_ModelView, u_Projection){
 	var projection = new Matrix4();
 	var modelView = new Matrix4();
@@ -319,13 +322,13 @@ function setViewMatrix(gl, u_ModelView, u_Projection){
 		projection.setOrtho(-SpanX, SpanX, -SpanY, SpanY, -1000, 1000);
 	}
 	else {
-		projection.setPerspective(60, aspectRatio, 1, 2000);
+		projection.setPerspective(cameraFOV, aspectRatio, 1, 2000);
 	}
 	if (view == 0){
 		modelView.setLookAt(0, -400, 75, 0, 1, 0, 0, 0, 1);
 	}
 	else {
-		modelView.setLookAt(0, 0, 400, 0, 0, 0, 0, 1, 0);		
+		modelView.setLookAt(cameraPos[0], cameraPos[1], cameraPos[2], cameraLookAt[0], cameraLookAt[1], cameraLookAt[2], 0, 1, 0);		
 	}
 
 	var normalMat = new Matrix4();  // Transformation matrix for normal
@@ -446,8 +449,13 @@ function mouseUp(ev, gl, canvas, u_ModelView, u_Projection) {
 			}
 		}
 	}
+	else if (mode == 0  && mouseVec[0] != 0 && mouseVec[1] != 0 && btn == 0 && selected == 0 && !sphereSelected) {
+		cameraLookAt[0] -= mouseVec[0] * SpanX;
+		cameraLookAt[1] -= mouseVec[1] * SpanY;
+	}
+
 	draw(gl, u_ModelView, u_Projection);
- 	console.log('mouseVec:', mouseVec);
+ 	//console.log('mouseVec:', mouseVec);
  	mouseVec = [0, 0, 0];
 }
 /*
@@ -456,24 +464,43 @@ Handles mouse scrolling. Adjusts the scale matrixf.
 function wheel(ev, gl, canvas, u_ModelView, u_Projection) {
   draw(gl, u_ModelView, u_Projection);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
+	ev.preventDefault();
 	if (selected > 0) {
-		ev.preventDefault();
 		var u_Scale = gl.getUniformLocation(gl.program, 'u_Scale');
 		if (!u_Scale) { 
 		  console.log('Failed to get uniform variable(s) storage location');
 		  return;
 		}
 		var s;
-		var currentScale = gl.getUniform(gl.program, u_Scale);
+		var currentScale = g_points[selected - 1][7];
 		if (ev.deltaY > 0) {
-			s = currentScale[0] * 0.5;
+			g_points[idx-1][7].scale(0.5, 0.5, 0.5);
 		}
 		else {
-			s = currentScale[0] * 2.0;
+			g_points[idx-1][7].scale(2, 2, 2);
 		}
-		g_points[idx-1][7].scale(s, s, s);
 		gl.uniformMatrix4fv(u_Scale, false, g_points[idx-1][7].elements);
 	}
+	else if (proj) {
+		var zoomSensitivity = 0.02;
+		if (ev.deltaY > 0) {
+			cameraFOV -= ev.deltaY * (-zoomSensitivity);
+		}
+		else {
+			cameraFOV += ev.deltaY * zoomSensitivity;
+		}
+	}
+	else if (lastMouseDown[2] == 1) {
+		var z_AxisCam = new Vector3([cameraLookAt[0] - cameraPos[0], cameraLookAt[1] - cameraPos[1], cameraLookAt[2] - cameraPos[2]]);
+		var mag = Math.pow((Math.pow(z_AxisCam.elements[0], 2)) + (Math.pow(z_AxisCam.elements[1], 2)) + (Math.pow(z_AxisCam.elements[2], 2)), 0.5);
+		var normal = new Vector3([z_AxisCam.elements[0]/mag, z_AxisCam.elements[1]/mag, z_AxisCam.elements[2]/mag]);
+		var moveSensitivity = 0.02;	
+
+		cameraPos[0] -= moveSensitivity * ev.deltaY * normal.elements[0];
+		cameraPos[1] -= moveSensitivity * ev.deltaY * normal.elements[1];
+		cameraPos[2] -= moveSensitivity * ev.deltaY * normal.elements[2];		
+	}
+	console.log('cameraPos: ', cameraPos);
 	draw(gl, u_ModelView, u_Projection);
 }
 /*
