@@ -29,7 +29,7 @@ var VSHADER_SOURCE =
 	'uniform bool u_SphereOn;\n' +
 	'varying vec4 v_Color; //color\n' +
 	'const float PI = 3.1415926535897932384626433832795;\n' +
-	'const vec3 sphereLight = vec3(0.5,0.5,1.0);\n' +
+	'uniform vec3 u_SphereLight;\n' +
 	'\n' +
 	'void main()	{\n' +
 	'	 vec4 vertPos4 = u_Scale * vec4(a_Position, 1);\n' +
@@ -37,9 +37,9 @@ var VSHADER_SOURCE =
 	'	 vertPos4 = u_RotationZ * vertPos4;\n' +
 	'	 vertPos4 = u_Translation + vertPos4;\n' +
 	'	 vertPos4 = u_ModelView * vertPos4;\n' +
-  '	 v_VertPos = vec3(vertPos4) / vertPos4.w;\n' +
-  '	 v_NormalInterp = vec3(u_NormalMat * vec4(a_Normal, 0.0));\n' +
-  '	 gl_Position = u_Projection * vertPos4;\n' +
+	'	 v_VertPos = vec3(vertPos4) / vertPos4.w;\n' +
+	'	 v_NormalInterp = vec3(u_NormalMat * vec4(a_Normal, 0.0));\n' +
+	'	 gl_Position = u_Projection * vertPos4;\n' +
 	'  vec3 N = normalize(v_NormalInterp);\n' +
 	'  vec3 L = normalize(u_LightDirection);\n' +
 	'  vec3 LS = normalize(u_SpherePosition - a_Position);\n' +
@@ -63,19 +63,19 @@ var VSHADER_SOURCE =
 	'    specularSphere += pow(specAngle, u_ShininessVal);\n' +
 	'  }\n' +
 	'  vec3 diffuse;\n' +
+	'  vec3 mainLight = (u_Color.rgb * u_LightColor * lambertian) + (u_Ks * u_LightColor * specular);\n' +
+	'  vec3 pointLight = (u_Color.rgb * u_SphereLight * lambertianSphere) + (u_Ks * u_SphereLight * specularSphere);\n' +
 	'	 if (u_SphereOn) {\n' +
-	'    diffuse = (u_Color.rgb * ((u_LightColor * lambertian) + (sphereLight * lambertianSphere))) +\n' +
-	'    (u_Ks * ((u_LightColor * specular) + (sphereLight * specularSphere)));\n' +	
+	'    diffuse = min((mainLight + pointLight), vec3(1.0, 1.0, 1.0));\n' +	
 	'	 }\n' +
 	'	 else {\n' +
-	'    diffuse = (u_Color.rgb * u_LightColor * lambertian) +\n' +
-	'    (u_Ks *u_LightColor * specular);\n' +	
+	'    diffuse = mainLight;\n' +	
 	'	 }\n' +
 	'  if (u_Color.a == 1.0){\n' +
 	'    if (u_PickedTree) {\n' + //  Draw in red if mouse is pressed
 	'      v_Color = u_idColor;\n' +
-  '  	 }\n' +
-  '		 else {\n' +
+	'  	 }\n' +
+	'		 else {\n' +
 	'    	 v_Color = vec4(diffuse, u_Color.a);\n' +
 	'    }}\n' +
 	// Wireframe color
@@ -86,13 +86,13 @@ var VSHADER_SOURCE =
 
 // Fragment shader program
 var FSHADER_SOURCE =
-  '#ifdef GL_ES\n' +
-  'precision mediump float;\n' +
-  '#endif\n' +
-  'varying vec4 v_Color;\n' +
-  'void main() {\n' +
-  '  gl_FragColor = v_Color;\n' +
-  '}\n';
+	'#ifdef GL_ES\n' +
+	'precision mediump float;\n' +
+	'#endif\n' +
+	'varying vec4 v_Color;\n' +
+	'void main() {\n' +
+	'  gl_FragColor = v_Color;\n' +
+	'}\n';
 var r_id;
 var g_points = [];  // The array for the position of a mouse press
 var mouseVec = new Float32Array([0, 0, 0]);
@@ -112,6 +112,9 @@ var u_NormalMat;
 var spherePos = new Vector3([0, -100, 100]);
 var sphereSelected = false;
 var sphereID = 51;
+var lastUpTime = 0;
+var ANGLE_STEP = 0.05;
+var currentAngle = 0.0;
 
 function main() {
 	// Retrieve <canvas> element
@@ -130,11 +133,29 @@ function main() {
 			if (checkbox1.checked) {
 				view = 0;
 				console.log("Sideview");
+				cameraPos[0] = 0;
+				cameraPos[1] = 400;
+				cameraPos[2] = 75;
+				cameraLookAt[0] = 0;
+				cameraLookAt[1] = 0;
+				cameraLookAt[2] = 1;	
+				cameraUp[0] = 0;
+				cameraUp[1] = 0;
+				cameraUp[2] = 1;	
 				draw(gl, u_ModelView, u_Projection);
 			} 
 			else {
 				view = 1;
 				console.log("Topview");
+				cameraPos[0] = 0;
+				cameraPos[1] = 0;
+				cameraPos[2] = 400;
+				cameraLookAt[0] = 0;
+				cameraLookAt[1] = 1;
+				cameraLookAt[2] = 0;
+				cameraUp[0] = 0;
+				cameraUp[1] = 1;
+				cameraUp[2] = 0;	
 				draw(gl, u_ModelView, u_Projection);
 			}
 		});	
@@ -162,6 +183,7 @@ function main() {
 			} 
 			else {
 				proj = 0;
+				cameraFOV = 60;
 				console.log("Perspective");
 				draw(gl, u_ModelView, u_Projection);
 			}
@@ -222,22 +244,29 @@ function main() {
 		console.log('Failed to get the storage location of u_Ks');
 		return;
 	}
-	gl.uniform3f(u_Ks, 1.0, 1.0, 1.0);
+	gl.uniform3f(u_SphereLight, 1.0, 1.0, 1.0);
+
+	var u_SphereLight = gl.getUniformLocation(gl.program, 'u_SphereLight');
+	if (!u_Ks) {
+		console.log('Failed to get the storage location of u_SphereLight');
+		return;
+	}
+	gl.uniform3f(u_SphereLight, 0.5, 0.5, 1.0);
 	// Specify the color for clearing <canvas>
 	gl.clearColor(1.0, 1.0, 1.0, 1.0);
 	gl.enable(gl.DEPTH_TEST);
 	u_PickedTree = gl.getUniformLocation(gl.program, 'u_PickedTree');
 	if (!u_PickedTree) { 
-	  console.log('Failed to get uniform variable(s) storage location');
-	  return;
+		console.log('Failed to get uniform variable(s) storage location');
+		return;
 	}
 	gl.uniform1i(u_PickedTree, 0); // Pass false to u_Clicked
 	// Get the storage locations of u_ViewMatrix and u_ProjMatrix variables and u_Translate
-  var u_LightColor = gl.getUniformLocation(gl.program, 'u_LightColor');
-  var u_LightDirection = gl.getUniformLocation(gl.program, 'u_LightDirection');
+	var u_LightColor = gl.getUniformLocation(gl.program, 'u_LightColor');
+	var u_LightDirection = gl.getUniformLocation(gl.program, 'u_LightDirection');
 	if (!u_LightDirection) { 
-	  console.log('Failed to get uniform variable(s) storage location');
-	  return;
+		console.log('Failed to get uniform variable(s) storage location');
+		return;
 	}
 	 // Set the light color (white)
 	gl.uniform3f(u_LightColor, 1.0, 1.0, 1.0);
@@ -245,22 +274,21 @@ function main() {
 	var lightDirection = new Vector3([1, 1, 1]);
 	lightDirection.normalize();     // Normalize
 	gl.uniform3fv(u_LightDirection, lightDirection.elements);
-
 	var u_ModelView = gl.getUniformLocation(gl.program, 'u_ModelView');
 	var u_Projection = gl.getUniformLocation(gl.program, 'u_Projection');
 	if (!u_Projection) { 
-	 	console.log('Failed to get u_Projection storage location');
-  	return;
+		console.log('Failed to get u_Projection storage location');
+		return;
 	}
 	if (!u_ModelView) { 
-	 	console.log('Failed to get u_ModelView storage location');
-  	return;
+		console.log('Failed to get u_ModelView storage location');
+		return;
 	}
 	
 	var u_Scale = gl.getUniformLocation(gl.program, 'u_Scale');
 	if (!u_Scale) { 
-	  console.log('Failed to get uniform variable(s) storage location');
-	  return;
+		console.log('Failed to get uniform variable(s) storage location');
+		return;
 	}
 	var scale = new Matrix4();
 	scale.setScale(1, 1, 1);
@@ -269,8 +297,8 @@ function main() {
 	var u_RotationX = gl.getUniformLocation(gl.program, 'u_RotationX');
 	var u_RotationZ = gl.getUniformLocation(gl.program, 'u_RotationZ');
 	if (!u_RotationX || !u_RotationZ) { 
-	  console.log('Failed to get uniform variable(s) storage location');
-	  return;
+		console.log('Failed to get uniform variable(s) storage location');
+		return;
 	}
 	rotationX = new Matrix4();
 	rotationZ = new Matrix4();
@@ -281,10 +309,10 @@ function main() {
 	gl.uniformMatrix4fv(u_RotationZ, false, rotationZ.elements);
 	
 	// Register function (event handler) to be called on a mouse press
-  u_NormalMat = gl.getUniformLocation(gl.program, 'u_NormalMat');
+	u_NormalMat = gl.getUniformLocation(gl.program, 'u_NormalMat');
 	if (!u_NormalMat) { 
-	  console.log('Failed to get uniform variable(s) storage location');
-	  return;
+		console.log('Failed to get uniform variable(s) storage location');
+		return;
 	}  
 	var modelMatrix = new Matrix4();   // Model matrix
 	var normalMat = new Matrix4();  // Transformation matrix for normal
@@ -298,16 +326,51 @@ function main() {
 	// Calculate matrix to transform normal based on the model matrix
 	normalMat.setInverseOf(modelMatrix);
 	normalMat.transpose();
-  modelViewInv.setInverseOf(modelView);
-  normalMat.transpose(modelViewInv);
+	modelViewInv.setInverseOf(modelView);
+	normalMat.transpose(modelViewInv);
 	// Pass the transformation matrix for normal to u_NormalMatrix
 	gl.uniformMatrix4fv(u_NormalMat, false, normalMat.elements);
+	canvas.onmousedown = function(ev){	
+		var currentTime = new Date();
+		timeDiff = currentTime - lastUpTime;
+		mouseDown(ev, gl, canvas, u_ModelView, u_Projection);	
+	};
+	var clickCount = 0;
+	var lookAround = false;
+	canvas.onmouseup = function(ev){ 
+		// Lines 332-343 were borrowed from https://gist.github.com/karbassi/639453
+		clickCount++;
+		if (clickCount === 1) {
+			singleClickTimer = setTimeout(function() {
+				clickCount = 0;
+				lookAround = false;
+				mouseUp(ev, gl, canvas, u_ModelView, u_Projection)
+			}, 400);
+		} 
+		else if (clickCount === 2) {
+			clearTimeout(singleClickTimer);
+			clickCount = 0;
+			lookAround = true;
+			dClick(ev, gl, canvas, u_ModelView, u_Projection)
+		}
 
-	canvas.onmousedown = function(ev){ mouseDown(ev, gl, canvas, u_ModelView, u_Projection); };
-	canvas.onmouseup = function(ev){ mouseUp(ev, gl, canvas, u_ModelView, u_Projection); };
+	};
 	canvas.onwheel = function(ev){ wheel(ev, gl, canvas, u_ModelView, u_Projection); };
-
-	draw(gl, u_ModelView, u_Projection);
+	// Current rotation angle of a triangle
+	var tick = function() {
+		if (lookAround) {
+			currentAngle = animate(currentAngle);// Update the rotation angle
+			var currentRad = currentAngle * Math.PI/180.0
+			cameraLookAt[0] = Math.cos(currentAngle) + cameraPos[0];
+			cameraLookAt[1] = Math.sin(currentAngle) + cameraPos[1];
+ 		}
+		else
+			currentAngle = 0.0;
+		draw(gl, u_ModelView, u_Projection, currentAngle);
+		requestAnimationFrame(tick);// Request that the browser calls tick
+	 };
+	tick();
+	draw(gl, u_ModelView, u_Projection, currentAngle);
 }
 /*
 Handles the different viewing, like orthographic, perspective, top, and side
@@ -315,6 +378,10 @@ Handles the different viewing, like orthographic, perspective, top, and side
 var cameraFOV = 60;
 var cameraPos = new Float32Array([0, 0, 400]);
 var cameraLookAt = new Float32Array([0, 0, 0]);
+var cameraUp = new Float32Array([0, 1, 0]);
+// Last time when this function was called
+var g_last = Date.now();
+
 function setViewMatrix(gl, u_ModelView, u_Projection){
 	var projection = new Matrix4();
 	var modelView = new Matrix4();
@@ -324,12 +391,12 @@ function setViewMatrix(gl, u_ModelView, u_Projection){
 	else {
 		projection.setPerspective(cameraFOV, aspectRatio, 1, 2000);
 	}
-	if (view == 0){
-		modelView.setLookAt(0, -400, 75, 0, 1, 0, 0, 0, 1);
-	}
-	else {
-		modelView.setLookAt(cameraPos[0], cameraPos[1], cameraPos[2], cameraLookAt[0], cameraLookAt[1], cameraLookAt[2], 0, 1, 0);		
-	}
+	modelView.setLookAt(
+		cameraPos[0], cameraPos[1], cameraPos[2], 
+		cameraLookAt[0], cameraLookAt[1], cameraLookAt[2], 
+		cameraUp[0], cameraUp[1], cameraUp[2]
+	);
+	//modelView.rotate(currentAngle, 0, 0, 1);
 
 	var normalMat = new Matrix4();  // Transformation matrix for normal
 	var modelViewInv = new Matrix4();
@@ -337,8 +404,8 @@ function setViewMatrix(gl, u_ModelView, u_Projection){
 	// Calculate matrix to transform normal based on the model matrix
 	normalMat.setInverseOf(modelView);
 	normalMat.transpose();
-  modelViewInv.setInverseOf(modelView);
-  normalMat.transpose(modelViewInv);
+	modelViewInv.setInverseOf(modelView);
+	normalMat.transpose(modelViewInv);
 	// Pass the transformation matrix for normal to u_NormalMatrix
 	gl.uniformMatrix4fv(u_NormalMat, false, normalMat.elements);
 	gl.uniformMatrix4fv(u_Projection, false, projection.elements);
@@ -360,24 +427,25 @@ function save(filename) {
 Loads scenes. Unmodified from Fahim's example.
 */
 function load() {
-  var Loadfile = document.getElementById("loadscene").files[0];
-  var reader = new FileReader();
-  reader.readAsText(Loadfile);
-  reader.onload = function () {
-  	var len = this.result.length;
-  	var data = this.result.slice(1, len);
-  	var xyb = data.split(',');
-  	for (var i = 0; i < xyb.length; i=i+4) {
+	var Loadfile = document.getElementById("loadscene").files[0];
+	var reader = new FileReader();
+	reader.readAsText(Loadfile);
+	reader.onload = function () {
+		var len = this.result.length;
+		var data = this.result.slice(1, len);
+		var xyb = data.split(',');
+		for (var i = 0; i < xyb.length; i=i+4) {
 			g_points.push(([parseFloat(xyb[i]), parseFloat(xyb[i+1]), parseFloat(xyb[i+2]), parseFloat(xyb[i+3])]));
-  	}
-  };	
+		}
+	};	
 	console.log("g_points: ", g_points);
 }
 /*
 Executed when the middle, right, or left mouse buttons are pressed.
 */
 function mouseDown(ev, gl, canvas, u_ModelView, u_Projection) {	
-  // Write the positions of vertices to a vertex shader
+	doubleClicked = false;
+	// Write the positions of vertices to a vertex shader
 	var x = ev.clientX; // x coordinate of a mouse pointer
 	var y = ev.clientY; // y coordinate of a mouse pointer
 	var rect = ev.target.getBoundingClientRect();
@@ -387,27 +455,29 @@ function mouseDown(ev, gl, canvas, u_ModelView, u_Projection) {
 	y = (canvas.height/2 - (y - rect.top))/(canvas.height/2);
 	var x_in_canvas = ev.clientX - rect.left, y_in_canvas = rect.bottom - ev.clientY;
 	gl.uniform1i(u_PickedTree, 1); // Pass false to u_Clicked
-  lastMouseDown[0] = x;
-  lastMouseDown[1] = y;
-  lastMouseDown[2] = btn;
+	lastMouseDown[0] = x;
+	lastMouseDown[1] = y;
+	lastMouseDown[2] = btn; 	
 }
+
 /*
 Executed when the middle, right, or left mouse buttons are released.
 */
 function mouseUp(ev, gl, canvas, u_ModelView, u_Projection) {
-  // Write the positions of vertices to a vertex shader
-  var x = ev.clientX; // x coordinate of a mouse pointer
-  var y = ev.clientY; // y coordinate of a mouse pointer
-  var rect = ev.target.getBoundingClientRect();
-  var x_in_canvas = ev.clientX - rect.left, y_in_canvas = rect.bottom - ev.clientY;
-  var btn = ev.button;
-  var gLastIndex = g_points.length - 1;
-  x = ((x - rect.left) - canvas.width/2)/(canvas.width/2);
-  y = (canvas.height/2 - (y - rect.top))/(canvas.height/2);
-  var z = 0;
-  mouseVec = [x - lastMouseDown[0], y - lastMouseDown[1], 0];
-  draw(gl, u_ModelView, u_Projection);
-  var pixels = new Uint8Array(4); // Array for storing the pixel value
+	// Write the positions of vertices to a vertex shader
+	var x = ev.clientX; // x coordinate of a mouse pointer
+	var y = ev.clientY; // y coordinate of a mouse pointer
+	//console.log('x, y', x, ', ', y);
+	var rect = ev.target.getBoundingClientRect();
+	var x_in_canvas = ev.clientX - rect.left, y_in_canvas = rect.bottom - ev.clientY;
+	var btn = ev.button;
+	var gLastIndex = g_points.length - 1;
+	x = ((x - rect.left) - canvas.width/2)/(canvas.width/2);
+	y = (canvas.height/2 - (y - rect.top))/(canvas.height/2);
+	var z = 0;
+	mouseVec = [x - lastMouseDown[0], y - lastMouseDown[1], 0];
+	draw(gl, u_ModelView, u_Projection);
+	var pixels = new Uint8Array(4); // Array for storing the pixel value
 	gl.readPixels(x_in_canvas, y_in_canvas, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 	console.log("pixel color value = " + pixels);
 	idx = Math.round(pixels[0]/5);
@@ -455,21 +525,21 @@ function mouseUp(ev, gl, canvas, u_ModelView, u_Projection) {
 	}
 
 	draw(gl, u_ModelView, u_Projection);
- 	//console.log('mouseVec:', mouseVec);
- 	mouseVec = [0, 0, 0];
+	//console.log('mouseVec:', mouseVec);
+	mouseVec = [0, 0, 0];
 }
 /*
 Handles mouse scrolling. Adjusts the scale matrixf.
 */
 function wheel(ev, gl, canvas, u_ModelView, u_Projection) {
-  draw(gl, u_ModelView, u_Projection);
+	draw(gl, u_ModelView, u_Projection);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
 	ev.preventDefault();
 	if (selected > 0) {
 		var u_Scale = gl.getUniformLocation(gl.program, 'u_Scale');
 		if (!u_Scale) { 
-		  console.log('Failed to get uniform variable(s) storage location');
-		  return;
+			console.log('Failed to get uniform variable(s) storage location');
+			return;
 		}
 		var s;
 		var currentScale = g_points[selected - 1][7];
@@ -481,7 +551,7 @@ function wheel(ev, gl, canvas, u_ModelView, u_Projection) {
 		}
 		gl.uniformMatrix4fv(u_Scale, false, g_points[idx-1][7].elements);
 	}
-	else if (proj) {
+	else if (proj && lastMouseDown != 1) {
 		var zoomSensitivity = 0.02;
 		if (ev.deltaY > 0) {
 			cameraFOV -= ev.deltaY * (-zoomSensitivity);
@@ -506,22 +576,15 @@ function wheel(ev, gl, canvas, u_ModelView, u_Projection) {
 /*
 Draws the entire scene.
 */
-function draw(gl, u_ModelView, u_Projection) {
+function draw(gl, u_ModelView, u_Projection, currentAngle) {
 	setViewMatrix(gl, u_ModelView, u_Projection);
 	var len = g_points.length;
 	var u_RotationX = gl.getUniformLocation(gl.program, 'u_RotationX');
 	var u_RotationZ = gl.getUniformLocation(gl.program, 'u_RotationZ');
 	var u_Scale = gl.getUniformLocation(gl.program, 'u_Scale');
 	if (!u_RotationX || !u_RotationZ) { 
-	  console.log('Failed to get uniform variable(s) storage location');
-	  return;
-	}
-	for(var i = 0; i < len; i++) {
-		var xy = g_points[i];
-		gl.uniformMatrix4fv(u_RotationX, false, g_points[xy[3]-1][5].elements);
-		gl.uniformMatrix4fv(u_RotationZ, false, g_points[xy[3]-1][6].elements);
-		gl.uniformMatrix4fv(u_Scale, false, g_points[xy[3]-1][7].elements);
-		drawTree(gl, u_ModelView, u_Projection, xy);
+		console.log('Failed to get uniform variable(s) storage location');
+		return;
 	}
 	var scale = new Matrix4();
 	var s = 5;
@@ -538,8 +601,8 @@ function draw(gl, u_ModelView, u_Projection) {
 	}
 	var u_SpherePosition = gl.getUniformLocation(gl.program, 'u_SpherePosition');
 	if (!u_SpherePosition) { 
-	  console.log('Failed to get uniform variable(s) storage location');
-	  return;
+		console.log('Failed to get uniform variable(s) storage location');
+		return;
 	}
 	if (sphereSelected) {
 		spherePos.elements[0] += mouseVec[0] * SpanX;
@@ -552,6 +615,13 @@ function draw(gl, u_ModelView, u_Projection) {
 	gl.uniform3fv(u_SpherePosition, spherePos.elements);
 	gl.uniformMatrix4fv(u_Scale, false, scale.elements);
 	drawSphere(gl);
+	for(var i = 0; i < len; i++) {
+		var xy = g_points[i];
+		gl.uniformMatrix4fv(u_RotationX, false, g_points[xy[3]-1][5].elements);
+		gl.uniformMatrix4fv(u_RotationZ, false, g_points[xy[3]-1][6].elements);
+		gl.uniformMatrix4fv(u_Scale, false, g_points[xy[3]-1][7].elements);
+		drawTree(gl, u_ModelView, u_Projection, xy);
+	}
 }
 /*
 Draws one tree.
@@ -579,8 +649,8 @@ function drawTree(gl, u_ModelView, u_Projection, xy) {
 			var u_RotationX = gl.getUniformLocation(gl.program, 'u_RotationX');
 			var u_RotationZ = gl.getUniformLocation(gl.program, 'u_RotationZ');
 			if (!u_RotationX || !u_RotationZ) { 
-			  console.log('Failed to get uniform variable(s) storage location');
-			  return;
+				console.log('Failed to get uniform variable(s) storage location');
+				return;
 			}
 			g_points[xy[3]-1][5].rotate(-mouseVec[1] * 50, 1, 0, 0);
 			gl.uniformMatrix4fv(u_RotationX, false, g_points[xy[3]-1][5].elements);
@@ -704,26 +774,26 @@ function drawCylinder(gl, u_ModelView, u_Projection, x1, y1, z1, x2, y2, z2, d, 
 		gl.uniform4f(u_Translation, SpanX*xy[0], SpanY*xy[1], SpanY*xy[8]/4, 0);
 	}
 	
-  var u_Color = gl.getUniformLocation(gl.program, 'u_Color');
-  if (!u_Color) {
-    console.log('Failed to get the storage location of u_Color');
-    return;
-  }
-  
-  var u_idColor = gl.getUniformLocation(gl.program, 'u_idColor');
-  if (!u_idColor) {
-    console.log('Failed to get the storage location of u_idColor');
-    return;
-  }
-  var u_ShininessVal = gl.getUniformLocation(gl.program, 'u_ShininessVal');  
-  if (!u_ShininessVal) {
+	var u_Color = gl.getUniformLocation(gl.program, 'u_Color');
+	if (!u_Color) {
+		console.log('Failed to get the storage location of u_Color');
+		return;
+	}
+	
+	var u_idColor = gl.getUniformLocation(gl.program, 'u_idColor');
+	if (!u_idColor) {
+		console.log('Failed to get the storage location of u_idColor');
+		return;
+	}
+	var u_ShininessVal = gl.getUniformLocation(gl.program, 'u_ShininessVal');  
+	if (!u_ShininessVal) {
 		console.log('Failed to get the storage location of u_ShininessVal');
 		return;
 	}
-  r_id = xy[3]/51; //Encoding tree id as color value (max 50 trees)
-  
-  gl.uniform4f(u_idColor, r_id, 1.0, 0.0, 1.0);
-  if (mode == 0) {
+	r_id = xy[3]/51; //Encoding tree id as color value (max 50 trees)
+	
+	gl.uniform4f(u_idColor, r_id, 1.0, 0.0, 1.0);
+	if (mode == 0) {
 		if(xy[2] == 0) {
 			gl.uniform4f(u_Color, 1.0, 0.0, 0.0, 1.0);
 			gl.uniform1f(u_ShininessVal, 5);
@@ -736,122 +806,169 @@ function drawCylinder(gl, u_ModelView, u_Projection, x1, y1, z1, x2, y2, z2, d, 
 			gl.uniform4f(u_Color, 0.0, 1.0, 0.0, 1.0);
 		}
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, n);
-  }
-  else if (mode == 1) {
+	}
+	else if (mode == 1) {
 		gl.uniform4f(u_Color, 1.0, 1.0, 1.0, 0);
 		gl.drawArrays(gl.LINES, 0, n);
-  }
+	}
 }
 
 function drawSphere(gl) { // Create a sphere
-  var SPHERE_DIV = 13;
+	var SPHERE_DIV = 13;
 
-  var i, ai, si, ci;
-  var j, aj, sj, cj;
-  var p1, p2;
+	var i, ai, si, ci;
+	var j, aj, sj, cj;
+	var p1, p2;
 
-  var positions = [];
-  var indices = [];
+	var positions = [];
+	var indices = [];
 
-  // Generate coordinates
-  for (j = 0; j <= SPHERE_DIV; j++) {
-    aj = j * Math.PI / SPHERE_DIV;
-    sj = Math.sin(aj);
-    cj = Math.cos(aj);
-    for (i = 0; i <= SPHERE_DIV; i++) {
-      ai = i * 2 * Math.PI / SPHERE_DIV;
-      si = Math.sin(ai);
-      ci = Math.cos(ai);
+	// Generate coordinates
+	for (j = 0; j <= SPHERE_DIV; j++) {
+		aj = j * Math.PI / SPHERE_DIV;
+		sj = Math.sin(aj);
+		cj = Math.cos(aj);
+		for (i = 0; i <= SPHERE_DIV; i++) {
+			ai = i * 2 * Math.PI / SPHERE_DIV;
+			si = Math.sin(ai);
+			ci = Math.cos(ai);
 
-      positions.push(si * sj);  // X
-      positions.push(cj);       // Y
-      positions.push(ci * sj);  // Z
-    }
-  }
+			positions.push(si * sj);  // X
+			positions.push(cj);       // Y
+			positions.push(ci * sj);  // Z
+		}
+	}
 
-  // Generate indices
-  for (j = 0; j < SPHERE_DIV; j++) {
-    for (i = 0; i < SPHERE_DIV; i++) {
-      p1 = j * (SPHERE_DIV+1) + i;
-      p2 = p1 + (SPHERE_DIV+1);
+	// Generate indices
+	for (j = 0; j < SPHERE_DIV; j++) {
+		for (i = 0; i < SPHERE_DIV; i++) {
+			p1 = j * (SPHERE_DIV+1) + i;
+			p2 = p1 + (SPHERE_DIV+1);
 
-      indices.push(p1);
-      indices.push(p2);
-      indices.push(p1 + 1);
+			indices.push(p1);
+			indices.push(p2);
+			indices.push(p1 + 1);
 
-      indices.push(p1 + 1);
-      indices.push(p2);
-      indices.push(p2 + 1);
-    }
-  }
+			indices.push(p1 + 1);
+			indices.push(p2);
+			indices.push(p2 + 1);
+		}
+	}
 
-  // Write the vertex property to buffers (coordinates and normals)
-  // Same data can be used for vertex and normal
-  // In order to make it intelligible, another buffer is prepared separately
-  if (!initArrayBuffer(gl, 'a_Position', new Float32Array(positions), gl.FLOAT, 3)) return -1;
-  if (!initArrayBuffer(gl, 'a_Normal', new Float32Array(positions), gl.FLOAT, 3))  return -1;
-  
-  // Unbind the buffer object
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	// Write the vertex property to buffers (coordinates and normals)
+	// Same data can be used for vertex and normal
+	// In order to make it intelligible, another buffer is prepared separately
+	if (!initArrayBuffer(gl, 'a_Position', new Float32Array(positions), gl.FLOAT, 3)) return -1;
+	if (!initArrayBuffer(gl, 'a_Normal', new Float32Array(positions), gl.FLOAT, 3))  return -1;
+	
+	// Unbind the buffer object
+	gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-  // Write the indices to the buffer object
-  var indexBuffer = gl.createBuffer();
-  if (!indexBuffer) {
-    console.log('Failed to create the buffer object');
-    return -1;
-  }
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
-    // Set the vertex coordinates, the color and the normal
-  var n = indices.length;
-  if (n < 0) {
-    console.log('Failed to set the vertex information');
-    return;
-  }
-  var u_Color = gl.getUniformLocation(gl.program, 'u_Color');
-  if (!u_Color) {
-    console.log('Failed to get the storage location of u_Color');
-    return;
-  }
-  var u_idColor = gl.getUniformLocation(gl.program, 'u_idColor');
-  if (!u_idColor) {
-    console.log('Failed to get the storage location of u_idColor');
-    return;
-  }
-  r_id = sphereID/51; //Encoding tree id as color value (max 50 trees)
-  
-  gl.uniform4f(u_idColor, r_id, 1.0, 0.0, 1.0);
-  if (sphereSelected) {
+	// Write the indices to the buffer object
+	var indexBuffer = gl.createBuffer();
+	if (!indexBuffer) {
+		console.log('Failed to create the buffer object');
+		return -1;
+	}
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+	gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+		// Set the vertex coordinates, the color and the normal
+	var n = indices.length;
+	if (n < 0) {
+		console.log('Failed to set the vertex information');
+		return;
+	}
+	var u_Color = gl.getUniformLocation(gl.program, 'u_Color');
+	if (!u_Color) {
+		console.log('Failed to get the storage location of u_Color');
+		return;
+	}
+	var u_idColor = gl.getUniformLocation(gl.program, 'u_idColor');
+	if (!u_idColor) {
+		console.log('Failed to get the storage location of u_idColor');
+		return;
+	}
+	r_id = sphereID/51; //Encoding tree id as color value (max 50 trees)
+	
+	gl.uniform4f(u_idColor, r_id, 1.0, 0.0, 1.0);
+	if (sphereSelected) {
 		gl.uniform4f(u_Color, 0, 1, 0, 1);
-  }
-  else {
+	}
+	else {
 		gl.uniform4f(u_Color, 1, 1, 0, 1);
-  }
-  // Draw the cube(Note that the 3rd argument is the gl.UNSIGNED_SHORT)
-  gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, 0);
+	}
+	// Draw the cube(Note that the 3rd argument is the gl.UNSIGNED_SHORT)
+	gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, 0);
 }
 
 function initArrayBuffer(gl, attribute, data, type, num) {
-  // Create a buffer object
-  var buffer = gl.createBuffer();
-  if (!buffer) {
-    console.log('Failed to create the buffer object');
-    return false;
-  }
-  // Write date into the buffer object
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  // Assign the buffer object to the attribute variable
-  var a_attribute = gl.getAttribLocation(gl.program, attribute);
-  if (a_attribute < 0) {
-    console.log('Failed to get the storage location of ' + attribute);
-    return false;
-  }
-  gl.vertexAttribPointer(a_attribute, num, type, false, 0, 0);
-  // Enable the assignment of the buffer object to the attribute variable
-  gl.enableVertexAttribArray(a_attribute);
+	// Create a buffer object
+	var buffer = gl.createBuffer();
+	if (!buffer) {
+		console.log('Failed to create the buffer object');
+		return false;
+	}
+	// Write date into the buffer object
+	gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+	gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	// Assign the buffer object to the attribute variable
+	var a_attribute = gl.getAttribLocation(gl.program, attribute);
+	if (a_attribute < 0) {
+		console.log('Failed to get the storage location of ' + attribute);
+		return false;
+	}
+	gl.vertexAttribPointer(a_attribute, num, type, false, 0, 0);
+	// Enable the assignment of the buffer object to the attribute variable
+	gl.enableVertexAttribArray(a_attribute);
 
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-  return true;
+	return true;
+}
+
+function dClick(ev, gl, canvas, u_ModelView, u_Projection) {
+	// Write the positions of vertices to a vertex shader
+	var x = ev.clientX; // x coordinate of a mouse pointer
+	var y = ev.clientY; // y coordinate of a mouse pointer
+	//console.log('x, y', x, ', ', y);
+	var rect = ev.target.getBoundingClientRect();
+	var x_in_canvas = ev.clientX - rect.left, y_in_canvas = rect.bottom - ev.clientY;
+	var btn = ev.button;
+	var gLastIndex = g_points.length - 1;
+	x = ((x - rect.left) - canvas.width/2)/(canvas.width/2);
+	y = (canvas.height/2 - (y - rect.top))/(canvas.height/2);
+	var z = 0;
+	mouseVec = [x - lastMouseDown[0], y - lastMouseDown[1], 0];
+	draw(gl, u_ModelView, u_Projection);
+	var pixels = new Uint8Array(4); // Array for storing the pixel value
+	gl.readPixels(x_in_canvas, y_in_canvas, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+	console.log("pixel color value = " + pixels);
+	idx = Math.round(pixels[0]/5);
+	console.log("id value = " + idx);
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
+	gl.uniform1i(u_PickedTree, 0); // Pass false to u_Clicked(rewrite the cube)	
+	if (mode == 0 && pixels[0] != 255 && idx > 0) {
+		cameraPos[0] = g_points[idx - 1][0] * SpanX; 
+		cameraPos[1] = g_points[idx - 1][1] * SpanY; 
+		cameraPos[2] = g_points[idx - 1][7].elements[0] * 70; 
+		cameraUp[0] = 0;
+		cameraUp[1] = 0;
+		cameraUp[2] = 1;
+		cameraLookAt[2] = g_points[idx - 1][7].elements[0] * 70;
+	//	cameraFOV = 240;	
+	}
+
+	draw(gl, u_ModelView, u_Projection);
+	mouseVec = [0, 0, 0];
+	doubleClicked = true;
+}
+
+function animate(angle) {
+	// Calculate the elapsed time
+	var now = Date.now();
+	var elapsed = now - g_last; // milliseconds
+	g_last = now;
+	// Update the current rotation angle (adjusted by the elapsed time)
+	var newAngle = angle + (ANGLE_STEP * elapsed) / 1000.0;
+	return newAngle %= 360;
 }
