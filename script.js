@@ -330,6 +330,9 @@ function main() {
 	normalMat.transpose(modelViewInv);
 	// Pass the transformation matrix for normal to u_NormalMatrix
 	gl.uniformMatrix4fv(u_NormalMat, false, normalMat.elements);
+	document.onkeydown = function(ev){
+		keyDown(ev, gl, canvas, u_ModelView, u_Projection);
+	};
 	canvas.onmousedown = function(ev){	
 		var currentTime = new Date();
 		timeDiff = currentTime - lastUpTime;
@@ -353,7 +356,6 @@ function main() {
 			lookAround = true;
 			dClick(ev, gl, canvas, u_ModelView, u_Projection)
 		}
-
 	};
 	canvas.onwheel = function(ev){ wheel(ev, gl, canvas, u_ModelView, u_Projection); };
 	// Current rotation angle of a triangle
@@ -363,6 +365,13 @@ function main() {
 			var currentRad = currentAngle * Math.PI/180.0
 			cameraLookAt[0] = Math.cos(currentAngle) + cameraPos[0];
 			cameraLookAt[1] = Math.sin(currentAngle) + cameraPos[1];
+ 		}
+ 		else if (examine) {
+ 			currentAngle = animate(currentAngle);// Update the rotation angle
+			var currentRad = currentAngle * Math.PI/180.0
+			cameraPos[0] = Math.cos(currentAngle) + cameraLookAt[0];
+			cameraPos[1] = Math.sin(currentAngle) + cameraLookAt[1];
+			cameraPos[2] = 50 + cameraLookAt[2];
  		}
 		else
 			currentAngle = 0.0;
@@ -525,7 +534,6 @@ function mouseUp(ev, gl, canvas, u_ModelView, u_Projection) {
 	}
 
 	draw(gl, u_ModelView, u_Projection);
-	//console.log('mouseVec:', mouseVec);
 	mouseVec = [0, 0, 0];
 }
 /*
@@ -571,6 +579,7 @@ function wheel(ev, gl, canvas, u_ModelView, u_Projection) {
 		cameraPos[2] -= moveSensitivity * ev.deltaY * normal.elements[2];		
 	}
 	console.log('cameraPos: ', cameraPos);
+	console.log('cameraFOV: ', cameraFOV);
 	draw(gl, u_ModelView, u_Projection);
 }
 /*
@@ -971,4 +980,19 @@ function animate(angle) {
 	// Update the current rotation angle (adjusted by the elapsed time)
 	var newAngle = angle + (ANGLE_STEP * elapsed) / 1000.0;
 	return newAngle %= 360;
+}
+
+var examine = false;
+function keyDown(ev, gl, canvas, u_ModelView, u_Projection) {
+	var btn = ev.keyCode;
+	if (mode == 0  && !sphereSelected && selected > 0 && btn == 69) {
+	//	draw(gl, u_ModelView, u_Projection);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
+		examine = true;
+		cameraLookAt[0] = g_points[selected-1][0];
+		cameraLookAt[1] = g_points[selected-1][1];
+		cameraLookAt[2] = g_points[selected-1][7].elements[0] * 70; 
+		console.log('cameraLookAt: ', cameraLookAt);
+	//	draw(gl, u_ModelView, u_Projection);
+	}
 }
