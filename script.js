@@ -130,6 +130,7 @@ function main() {
 	
 	var checkbox1 = document.getElementById("myCheck1");
 		checkbox1.addEventListener('change', function () {
+			examine = false;
 			if (checkbox1.checked) {
 				view = 0;
 				console.log("Sideview");
@@ -369,9 +370,12 @@ function main() {
  		else if (examine) {
  			currentAngle = animate(currentAngle);// Update the rotation angle
 			var currentRad = currentAngle * Math.PI/180.0
-			cameraPos[0] = Math.cos(currentAngle) + cameraLookAt[0];
-			cameraPos[1] = Math.sin(currentAngle) + cameraLookAt[1];
-			cameraPos[2] = 50 + cameraLookAt[2];
+			cameraPos[0] = g_points[selected-1][7].elements[0] * Math.cos(currentAngle) * 40 + cameraLookAt[0];
+			cameraPos[1] = g_points[selected-1][7].elements[0] * Math.sin(currentAngle) * 40 + cameraLookAt[1];
+			cameraPos[2] = g_points[selected-1][7].elements[0] * 50 + cameraLookAt[2];
+			cameraUp[0] = 0;
+			cameraUp[1] = 0;
+			cameraUp[2] = 1;	
  		}
 		else
 			currentAngle = 0.0;
@@ -467,6 +471,9 @@ function mouseDown(ev, gl, canvas, u_ModelView, u_Projection) {
 	lastMouseDown[0] = x;
 	lastMouseDown[1] = y;
 	lastMouseDown[2] = btn; 	
+	ev.preventDefault;
+	lookAround = false;
+	examine = false;
 }
 
 /*
@@ -559,7 +566,7 @@ function wheel(ev, gl, canvas, u_ModelView, u_Projection) {
 		}
 		gl.uniformMatrix4fv(u_Scale, false, g_points[idx-1][7].elements);
 	}
-	else if (proj && lastMouseDown != 1) {
+	else if (proj == 1 && lastMouseDown[2] != 1) {
 		var zoomSensitivity = 0.02;
 		if (ev.deltaY > 0) {
 			cameraFOV -= ev.deltaY * (-zoomSensitivity);
@@ -567,13 +574,14 @@ function wheel(ev, gl, canvas, u_ModelView, u_Projection) {
 		else {
 			cameraFOV += ev.deltaY * zoomSensitivity;
 		}
+		console.log('cameraFOV increased');
 	}
 	else if (lastMouseDown[2] == 1) {
 		var z_AxisCam = new Vector3([cameraLookAt[0] - cameraPos[0], cameraLookAt[1] - cameraPos[1], cameraLookAt[2] - cameraPos[2]]);
 		var mag = Math.pow((Math.pow(z_AxisCam.elements[0], 2)) + (Math.pow(z_AxisCam.elements[1], 2)) + (Math.pow(z_AxisCam.elements[2], 2)), 0.5);
 		var normal = new Vector3([z_AxisCam.elements[0]/mag, z_AxisCam.elements[1]/mag, z_AxisCam.elements[2]/mag]);
-		var moveSensitivity = 0.02;	
-
+		var moveSensitivity = 0.1;	
+		console.log('moved camera');
 		cameraPos[0] -= moveSensitivity * ev.deltaY * normal.elements[0];
 		cameraPos[1] -= moveSensitivity * ev.deltaY * normal.elements[1];
 		cameraPos[2] -= moveSensitivity * ev.deltaY * normal.elements[2];		
@@ -985,14 +993,34 @@ function animate(angle) {
 var examine = false;
 function keyDown(ev, gl, canvas, u_ModelView, u_Projection) {
 	var btn = ev.keyCode;
-	if (mode == 0  && !sphereSelected && selected > 0 && btn == 69) {
-	//	draw(gl, u_ModelView, u_Projection);
-		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
-		examine = true;
-		cameraLookAt[0] = g_points[selected-1][0];
-		cameraLookAt[1] = g_points[selected-1][1];
+	if (proj == 1 && !sphereSelected && selected > 0 && btn == 69) {
+		cameraLookAt[0] = g_points[selected-1][0] * SpanX;
+		cameraLookAt[1] = g_points[selected-1][1] * SpanY;
 		cameraLookAt[2] = g_points[selected-1][7].elements[0] * 70; 
+		if (view == 0 && examine == true) {
+			cameraPos[0] = 0;
+			cameraPos[1] = 400;
+			cameraPos[2] = 75;
+			cameraLookAt[0] = 0;
+			cameraLookAt[1] = 0;
+			cameraLookAt[2] = 1;	
+			cameraUp[0] = 0;
+			cameraUp[1] = 0;
+			cameraUp[2] = 1;	
+		} 
+		else if (view == 1 && examine == true){
+			cameraPos[0] = 0;
+			cameraPos[1] = 0;
+			cameraPos[2] = 400;
+			cameraLookAt[0] = 0;
+			cameraLookAt[1] = 1;
+			cameraLookAt[2] = 0;
+			cameraUp[0] = 0;
+			cameraUp[1] = 1;
+			cameraUp[2] = 0;
+		}	
+		examine = !examine;
 		console.log('cameraLookAt: ', cameraLookAt);
-	//	draw(gl, u_ModelView, u_Projection);
+		draw(gl, u_ModelView, u_Projection);
 	}
 }
